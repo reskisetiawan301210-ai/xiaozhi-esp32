@@ -7,7 +7,6 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "lamp_controller.h"
-#include "radio_player.h"
 #include "led/single_led.h"
 
 #include <esp_log.h>
@@ -77,17 +76,12 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
-            if (RadioPlayer::GetInstance().IsPlaying()) {
-                RadioPlayer::GetInstance().Stop();
-                return;
-            }
             app.ToggleChatState();
         });
     }
 
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
-        static RadioController radio;
     }
 
 public:

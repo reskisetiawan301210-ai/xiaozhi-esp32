@@ -37,7 +37,7 @@
 #define DISPLAY_CS_PIN          GPIO_NUM_41
 #define DISPLAY_BACKLIGHT_PIN   GPIO_NUM_NC
 
-// ILI9341 240x320 Display Configuration (Non-IPS Default)
+// ILI9341 240x320 Display Configuration
 #if defined(CONFIG_LCD_ILI9341_240X320)
 #define LCD_TYPE_ILI9341_SERIAL
 #define DISPLAY_WIDTH                   240
@@ -46,6 +46,19 @@
 #define DISPLAY_MIRROR_Y                false
 #define DISPLAY_SWAP_XY                 false
 #define DISPLAY_INVERT_COLOR            true
+#define DISPLAY_RGB_ORDER               LCD_RGB_ELEMENT_ORDER_BGR
+#define DISPLAY_OFFSET_X                0
+#define DISPLAY_OFFSET_Y                0
+#define DISPLAY_BACKLIGHT_OUTPUT_INVERT false
+#define DISPLAY_SPI_MODE                0
+#elif defined(CONFIG_LCD_ILI9341_240X320_NO_IPS)
+#define LCD_TYPE_ILI9341_SERIAL
+#define DISPLAY_WIDTH                   240
+#define DISPLAY_HEIGHT                  320
+#define DISPLAY_MIRROR_X                true
+#define DISPLAY_MIRROR_Y                false
+#define DISPLAY_SWAP_XY                 false
+#define DISPLAY_INVERT_COLOR            false
 #define DISPLAY_RGB_ORDER               LCD_RGB_ELEMENT_ORDER_BGR
 #define DISPLAY_OFFSET_X                0
 #define DISPLAY_OFFSET_Y                0

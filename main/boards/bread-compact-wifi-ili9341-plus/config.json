@@ -1,0 +1,12 @@
+{
+    "type": "bread-compact-wifi-ili9341-plus",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "bread-compact-wifi-ili9341-plus",
+            "sdkconfig_append": [
+                "CONFIG_LCD_ILI9341_240X320_NO_IPS=y"
+            ]
+        }
+    ]
+}

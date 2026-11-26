@@ -83,27 +83,43 @@ std::string RadioPlayer::ResolveStationUrl(const std::string& input, std::string
     }
 
     // Smart semantic keyword mapping
-    if (query.find("prambor") != std::string::npos || query.find("hits") != std::string::npos) {
-        out_name = "Prambors FM";
+    if (query.find("prambor") != std::string::npos || query.find("barat") != std::string::npos ||
+        query.find("english") != std::string::npos || query.find("hits") != std::string::npos ||
+        query.find("kpop") != std::string::npos || query.find("k-pop") != std::string::npos ||
+        query.find("mancanegara") != std::string::npos || query.find("billboard") != std::string::npos ||
+        query.find("top 40") != std::string::npos) {
+        out_name = "Prambors FM (Hits Mancanegara)";
         return stations_[0].url;
     }
-    if (query.find("indo") != std::string::npos || query.find("pop") != std::string::npos || query.find("lagu") != std::string::npos || query.find("musik") != std::string::npos) {
+    if (query.find("indo") != std::string::npos || query.find("pop") != std::string::npos ||
+        query.find("lagu") != std::string::npos || query.find("musik") != std::string::npos ||
+        query.find("nyanyi") != std::string::npos || query.find("play") != std::string::npos ||
+        query.find("putar") != std::string::npos || query.find("song") != std::string::npos ||
+        query.find("galau") != std::string::npos || query.find("iradio") != std::string::npos) {
         out_name = "I-Radio (100% Musik Indonesia)";
         return stations_[1].url;
     }
-    if (query.find("delta") != std::string::npos || query.find("enak") != std::string::npos || query.find("santai") != std::string::npos) {
-        out_name = "Delta FM";
+    if (query.find("delta") != std::string::npos || query.find("enak") != std::string::npos ||
+        query.find("santai") != std::string::npos || query.find("slow") != std::string::npos ||
+        query.find("akustik") != std::string::npos || query.find("nostalgia") != std::string::npos ||
+        query.find("kenangan") != std::string::npos || query.find("90") != std::string::npos ||
+        query.find("2000") != std::string::npos) {
+        out_name = "Delta FM (Hits 90s-2000s & Santai)";
         return stations_[2].url;
     }
-    if (query.find("berita") != std::string::npos || query.find("news") != std::string::npos || query.find("nasional") != std::string::npos) {
+    if (query.find("berita") != std::string::npos || query.find("news") != std::string::npos ||
+        query.find("nasional") != std::string::npos || query.find("kabar") != std::string::npos ||
+        query.find("info") != std::string::npos) {
         out_name = "RRI Pro 1 (Berita Nasional)";
         return stations_[3].url;
     }
-    if (query.find("rri 2") != std::string::npos || query.find("pro 2") != std::string::npos || query.find("muda") != std::string::npos) {
-        out_name = "RRI Pro 2 (Kreatif & Pop)";
+    if (query.find("rri 2") != std::string::npos || query.find("pro 2") != std::string::npos ||
+        query.find("muda") != std::string::npos || query.find("kreatif") != std::string::npos) {
+        out_name = "RRI Pro 2 (Kreatif & Pop Anak Muda)";
         return stations_[4].url;
     }
-    if (query.find("budaya") != std::string::npos || query.find("tradisi") != std::string::npos) {
+    if (query.find("budaya") != std::string::npos || query.find("tradisi") != std::string::npos ||
+        query.find("daerah") != std::string::npos || query.find("etnik") != std::string::npos) {
         out_name = "RRI Channel 5 (Budaya Nusantara)";
         return stations_[5].url;
     }
@@ -111,15 +127,25 @@ std::string RadioPlayer::ResolveStationUrl(const std::string& input, std::string
         out_name = "Ardan FM Bandung";
         return stations_[6].url;
     }
-    if (query.find("jogja") != std::string::npos || query.find("geronimo") != std::string::npos) {
+    if (query.find("jogja") != std::string::npos || query.find("geronimo") != std::string::npos ||
+        query.find("yogyakarta") != std::string::npos) {
         out_name = "Geronimo FM Yogyakarta";
         return stations_[7].url;
     }
-    if (query.find("dangdut") != std::string::npos || query.find("koplo") != std::string::npos || query.find("nagaswara") != std::string::npos) {
-        out_name = "Nagaswara FM (Dangdut & Pop)";
+    if (query.find("dakwah") != std::string::npos || query.find("islam") != std::string::npos ||
+        query.find("religi") != std::string::npos || query.find("ngaji") != std::string::npos ||
+        query.find("ceramah") != std::string::npos || query.find("dakta") != std::string::npos) {
+        out_name = "Radio Dakta (Dakwah & Informasi Islam)";
+        return stations_[8].url;
+    }
+    if (query.find("dangdut") != std::string::npos || query.find("koplo") != std::string::npos ||
+        query.find("nagaswara") != std::string::npos || query.find("joget") != std::string::npos ||
+        query.find("goyang") != std::string::npos) {
+        out_name = "Nagaswara FM (Dangdut Indonesia)";
         return stations_[9].url;
     }
-    if (query.find("campursari") != std::string::npos || query.find("jawa") != std::string::npos) {
+    if (query.find("campursari") != std::string::npos || query.find("jawa") != std::string::npos ||
+        query.find("gending") != std::string::npos || query.find("didi kempot") != std::string::npos) {
         out_name = "Radio Campursari Jawa";
         return stations_[10].url;
     }
@@ -382,9 +408,9 @@ RadioController::RadioController() {
     auto& mcp_server = McpServer::GetInstance();
 
     mcp_server.AddTool("self.radio.play",
-        "Putar siaran radio online Indonesia (musik, lagu pop, dangdut, berita, campursari) langsung di ESP32. "
-        "Gunakan tool ini ketika pengguna meminta memutar musik, lagu, atau radio. "
-        "Parameter 'station': nama stasiun ('prambors', 'iradio', 'delta', 'rri_pro1', 'rri_pro2', 'rri_ch5', 'ardan', 'geronimo', 'nagaswara', 'campursari') atau URL streaming langsung.",
+        "Putar musik, lagu, atau siaran radio online Indonesia (Pop Indo, Barat/Mancanegara, Dangdut/Koplo, Campursari Jawa, Hits 90s/Santai, Berita Nasional, Religi/Dakwah) atau URL streaming MP3 langsung di speaker ESP32. "
+        "Gunakan tool ini SETIAP KALI pengguna meminta: memutar musik, lagu, radio, mencari lagu, atau memutar genre musik tertentu. "
+        "Parameter 'station': nama stasiun ('prambors', 'iradio', 'delta', 'nagaswara', 'campursari', 'rri_pro1', 'rri_pro2', 'ardan', 'geronimo', 'dakta') atau kata kunci pencarian lagu/genre/artis (contoh: 'pop', 'barat', 'dangdut', 'lagu santai', 'berita', 'jawa') atau direct stream URL.",
         PropertyList({Property("station", kPropertyTypeString, std::string("iradio"))}),
         [](const PropertyList& properties) -> ReturnValue {
             auto station = properties["station"].value<std::string>();
