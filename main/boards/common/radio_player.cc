@@ -15,6 +15,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <memory>
 
 #define TAG "RadioPlayer"
 
@@ -169,7 +170,8 @@ bool RadioPlayer::Play(const std::string& station_or_url) {
         is_playing_ = true;
     }
 
-    BaseType_t res = xTaskCreate(TaskEntry, "radio_stream", 10240, this, 2, &task_handle_);
+    // 16KB stack for robust TLS & stream buffer operations
+    BaseType_t res = xTaskCreate(TaskEntry, "radio_stream", 16384, this, 2, &task_handle_);
     if (res != pdPASS) {
         ESP_LOGE(TAG, "Failed to create radio streaming task");
         std::lock_guard<std::mutex> lock(mutex_);
@@ -251,6 +253,19 @@ void RadioPlayer::PlayerTask() {
         return;
     }
 
+    // Wait until AI finishes speaking its response before taking over audio output
+    for (int i = 0; i < 50; ++i) {
+        if (Application::GetInstance().GetDeviceState() != kDeviceStateSpeaking) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (stop_requested_.load()) {
+            http->Close();
+            is_playing_ = false;
+            return;
+        }
+    }
+
     auto codec = Board::GetInstance().GetAudioCodec();
     if (!codec) {
         ESP_LOGE(TAG, "Audio codec unavailable");
@@ -261,10 +276,18 @@ void RadioPlayer::PlayerTask() {
 
     codec->EnableOutput(true);
 
-    mp3dec_t mp3d;
-    mp3dec_init(&mp3d);
+    // Allocate MP3 decoder and PCM buffer on heap to prevent stack overflow
+    auto mp3d = std::unique_ptr<mp3dec_t>(new (std::nothrow) mp3dec_t());
+    auto pcm_frame = std::unique_ptr<mp3d_sample_t[]>(new (std::nothrow) mp3d_sample_t[MINIMP3_MAX_SAMPLES_PER_FRAME]);
+    if (!mp3d || !pcm_frame) {
+        ESP_LOGE(TAG, "Failed to allocate MP3 decoder memory");
+        http->Close();
+        is_playing_ = false;
+        return;
+    }
+    mp3dec_init(mp3d.get());
 
-    // 16KB stream ring/sliding buffer in PSRAM
+    // 16KB stream ring/sliding buffer in PSRAM or internal heap
     constexpr size_t kStreamBufferSize = 16384;
     uint8_t* stream_buffer = (uint8_t*)heap_caps_malloc(kStreamBufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!stream_buffer) {
@@ -278,19 +301,27 @@ void RadioPlayer::PlayerTask() {
     }
 
     size_t buffer_len = 0;
-    mp3d_sample_t pcm_frame[MINIMP3_MAX_SAMPLES_PER_FRAME];
     mp3dec_frame_info_t info;
 
     esp_ae_rate_cvt_handle_t resampler = nullptr;
     int current_sample_rate = 0;
     const int target_sample_rate = codec->output_sample_rate();
 
-    auto display = Board::GetInstance().GetDisplay();
-    if (display) {
-        std::string label = "📻 " + station_name;
-        display->SetChatMessage("assistant", label.c_str());
-        display->SetEmotion("happy");
-    }
+    // Reusable buffers to avoid memory fragmentation in playback loop
+    std::vector<int16_t> mono_pcm;
+    mono_pcm.reserve(MINIMP3_MAX_SAMPLES_PER_FRAME);
+    std::vector<int16_t> out_pcm;
+    out_pcm.reserve(MINIMP3_MAX_SAMPLES_PER_FRAME * 2);
+
+    // Thread-safe LCD update via Application main thread
+    Application::GetInstance().Schedule([station_name]() {
+        auto display = Board::GetInstance().GetDisplay();
+        if (display) {
+            std::string label = "📻 " + station_name;
+            display->SetChatMessage("assistant", label.c_str());
+            display->SetEmotion("happy");
+        }
+    });
 
     ESP_LOGI(TAG, "Radio stream connected! Beginning playback...");
 
@@ -323,7 +354,7 @@ void RadioPlayer::PlayerTask() {
         }
 
         // Decode one MP3 frame
-        int samples = mp3dec_decode_frame(&mp3d, stream_buffer, buffer_len, pcm_frame, &info);
+        int samples = mp3dec_decode_frame(mp3d.get(), stream_buffer, buffer_len, pcm_frame.get(), &info);
         if (info.frame_bytes > 0) {
             if ((size_t)info.frame_bytes <= buffer_len) {
                 memmove(stream_buffer, stream_buffer + info.frame_bytes, buffer_len - info.frame_bytes);
@@ -355,7 +386,7 @@ void RadioPlayer::PlayerTask() {
             }
 
             // Downmix to mono
-            std::vector<int16_t> mono_pcm(samples);
+            mono_pcm.resize(samples);
             if (info.channels == 2) {
                 for (int i = 0; i < samples; ++i) {
                     mono_pcm[i] = (int16_t)(((int32_t)pcm_frame[i * 2] + (int32_t)pcm_frame[i * 2 + 1]) / 2);
@@ -370,7 +401,7 @@ void RadioPlayer::PlayerTask() {
             if (resampler && current_sample_rate != target_sample_rate) {
                 uint32_t max_out = 0;
                 esp_ae_rate_cvt_get_max_out_sample_num(resampler, samples, &max_out);
-                std::vector<int16_t> out_pcm(max_out);
+                out_pcm.resize(max_out);
                 uint32_t out_samples = 0;
                 esp_ae_rate_cvt_process(resampler, (esp_ae_sample_t)mono_pcm.data(), samples, (esp_ae_sample_t)out_pcm.data(), &out_samples);
                 out_pcm.resize(out_samples);
@@ -392,10 +423,14 @@ void RadioPlayer::PlayerTask() {
     free(stream_buffer);
     http->Close();
 
-    if (display) {
-        display->SetChatMessage("assistant", "");
-        display->SetEmotion("neutral");
-    }
+    // Thread-safe LCD reset via Application main thread
+    Application::GetInstance().Schedule([]() {
+        auto display = Board::GetInstance().GetDisplay();
+        if (display) {
+            display->SetChatMessage("assistant", "");
+            display->SetEmotion("neutral");
+        }
+    });
 
     is_playing_ = false;
     ESP_LOGI(TAG, "Radio streaming task terminated cleanly");
