@@ -1,6 +1,8 @@
 #include "radio_player.h"
 
 #define MINIMP3_IMPLEMENTATION
+#define MINIMP3_ONLY_MP3
+#define MINIMP3_EXTERNAL_SCRATCH
 #include "minimp3.h"
 
 #include "board.h"
@@ -16,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
+#include <new>
 
 #define TAG "RadioPlayer"
 
@@ -25,20 +28,19 @@ RadioPlayer& RadioPlayer::GetInstance() {
 }
 
 RadioPlayer::RadioPlayer() {
-    // Indonesian favorite radio streams
-    stations_ = {
-        {"prambors", "Prambors FM Jakarta", "http://masima.rastream.com/masima-pramborsjakarta?type=.mp3", "Hits Pop Indo & Mancanegara"},
-        {"iradio", "101.4 I-Radio Jakarta", "https://stream.radiojar.com/4ywdgup3bnzuv", "100% Musik Indonesia"},
-        {"delta", "Delta FM Indonesia", "http://masima.rastream.com/masima-delta?type=.mp3", "Lagu Enak Hits 90s-2000s"},
-        {"rri_pro1", "RRI Pro 1 Jakarta", "http://stream-node1.rri.co.id/streaming/25/9025/rrijakartapro1.mp3", "Berita & Musik Nasional"},
-        {"rri_pro2", "RRI Pro 2 Indonesia", "https://stream-node2.rri.co.id/streaming/21/9221/rritjpinangpro2.mp3", "Kreatif & Hits Pop Anak Muda"},
-        {"rri_ch5", "RRI Channel 5", "https://stream-node1.rri.co.id/streaming/41/8941/chlima.mp3", "Musik Tradisional Nusantara"},
-        {"ardan", "Ardan Radio 105.9 FM Bandung", "https://stream.rcs.revma.com/ugpyzu9n5k3vv", "Hits Musik Pop & RnB"},
-        {"geronimo", "Geronimo FM Yogyakarta", "https://ig.idstreamer.com:8090//live", "Top 40 & Hits Indonesia"},
-        {"dakta", "Radio Dakta 107 FM", "http://175.103.48.4:9302/stream", "Informasi & Berita Aktual"},
-        {"nagaswara", "Nagaswara FM Radiotemen", "http://live.nagaswarafm.com:9900/stream", "Dangdut & Pop Indonesia Hits"},
-        {"campursari", "Radio Campursari Jawa", "http://stream.suararadio.com:8000/campursari", "Campursari & Gending Jawa"}
-    };
+    // Indonesian favorite radio streams (push_back keeps stack frame tiny)
+    stations_.reserve(11);
+    stations_.push_back({"prambors", "Prambors FM Jakarta", "http://masima.rastream.com/masima-pramborsjakarta?type=.mp3", "Hits Pop Indo & Mancanegara"});
+    stations_.push_back({"iradio", "101.4 I-Radio Jakarta", "https://stream.radiojar.com/4ywdgup3bnzuv", "100% Musik Indonesia"});
+    stations_.push_back({"delta", "Delta FM Indonesia", "http://masima.rastream.com/masima-delta?type=.mp3", "Lagu Enak Hits 90s-2000s"});
+    stations_.push_back({"rri_pro1", "RRI Pro 1 Jakarta", "http://stream-node1.rri.co.id/streaming/25/9025/rrijakartapro1.mp3", "Berita & Musik Nasional"});
+    stations_.push_back({"rri_pro2", "RRI Pro 2 Indonesia", "https://stream-node2.rri.co.id/streaming/21/9221/rritjpinangpro2.mp3", "Kreatif & Hits Pop Anak Muda"});
+    stations_.push_back({"rri_ch5", "RRI Channel 5", "https://stream-node1.rri.co.id/streaming/41/8941/chlima.mp3", "Musik Tradisional Nusantara"});
+    stations_.push_back({"ardan", "Ardan Radio 105.9 FM Bandung", "https://stream.rcs.revma.com/ugpyzu9n5k3vv", "Hits Musik Pop & RnB"});
+    stations_.push_back({"geronimo", "Geronimo FM Yogyakarta", "https://ig.idstreamer.com:8090//live", "Top 40 & Hits Indonesia"});
+    stations_.push_back({"dakta", "Radio Dakta 107 FM", "http://175.103.48.4:9302/stream", "Informasi & Berita Aktual"});
+    stations_.push_back({"nagaswara", "Nagaswara FM Radiotemen", "http://live.nagaswarafm.com:9900/stream", "Dangdut & Pop Indonesia Hits"});
+    stations_.push_back({"campursari", "Radio Campursari Jawa", "http://stream.suararadio.com:8000/campursari", "Campursari & Gending Jawa"});
 }
 
 RadioPlayer::~RadioPlayer() {
@@ -276,29 +278,29 @@ void RadioPlayer::PlayerTask() {
 
     codec->EnableOutput(true);
 
-    // Allocate MP3 decoder and PCM buffer on heap to prevent stack overflow
-    auto mp3d = std::unique_ptr<mp3dec_t>(new (std::nothrow) mp3dec_t());
-    auto pcm_frame = std::unique_ptr<mp3d_sample_t[]>(new (std::nothrow) mp3d_sample_t[MINIMP3_MAX_SAMPLES_PER_FRAME]);
-    if (!mp3d || !pcm_frame) {
-        ESP_LOGE(TAG, "Failed to allocate MP3 decoder memory");
-        http->Close();
-        is_playing_ = false;
-        return;
-    }
-    mp3dec_init(mp3d.get());
+    // Allocate MP3 decoder, scratch buffer (~16.6KB), and PCM buffer in PSRAM/heap
+    auto alloc_psram = [](size_t size) -> void* {
+        void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        return p ? p : malloc(size);
+    };
 
-    // 16KB stream ring/sliding buffer in PSRAM or internal heap
+    mp3dec_t* mp3d = static_cast<mp3dec_t*>(alloc_psram(sizeof(mp3dec_t)));
+    void* mp3_scratch = alloc_psram(mp3dec_scratch_size());
+    mp3d_sample_t* pcm_frame = static_cast<mp3d_sample_t*>(alloc_psram(sizeof(mp3d_sample_t) * MINIMP3_MAX_SAMPLES_PER_FRAME));
     constexpr size_t kStreamBufferSize = 16384;
-    uint8_t* stream_buffer = (uint8_t*)heap_caps_malloc(kStreamBufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!stream_buffer) {
-        stream_buffer = (uint8_t*)malloc(kStreamBufferSize);
-    }
-    if (!stream_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate memory for streaming buffer");
+    uint8_t* stream_buffer = static_cast<uint8_t*>(alloc_psram(kStreamBufferSize));
+
+    if (!mp3d || !mp3_scratch || !pcm_frame || !stream_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate MP3/stream buffers");
+        free(mp3d);
+        free(mp3_scratch);
+        free(pcm_frame);
+        free(stream_buffer);
         http->Close();
         is_playing_ = false;
         return;
     }
+    mp3dec_init(mp3d);
 
     size_t buffer_len = 0;
     mp3dec_frame_info_t info;
@@ -353,8 +355,8 @@ void RadioPlayer::PlayerTask() {
             continue;
         }
 
-        // Decode one MP3 frame
-        int samples = mp3dec_decode_frame(mp3d.get(), stream_buffer, buffer_len, pcm_frame.get(), &info);
+        // Decode one MP3 frame using external PSRAM scratch buffer (tiny stack frame)
+        int samples = mp3dec_decode_frame_scratch(mp3d, stream_buffer, buffer_len, pcm_frame, &info, mp3_scratch);
         if (info.frame_bytes > 0) {
             if ((size_t)info.frame_bytes <= buffer_len) {
                 memmove(stream_buffer, stream_buffer + info.frame_bytes, buffer_len - info.frame_bytes);
@@ -420,6 +422,9 @@ void RadioPlayer::PlayerTask() {
         resampler = nullptr;
     }
 
+    free(mp3d);
+    free(mp3_scratch);
+    free(pcm_frame);
     free(stream_buffer);
     http->Close();
 

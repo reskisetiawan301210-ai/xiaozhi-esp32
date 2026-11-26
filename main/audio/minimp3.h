@@ -7,6 +7,7 @@
     See <http://creativecommons.org/publicdomain/zero/1.0/>.
 */
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +34,12 @@ typedef int16_t mp3d_sample_t;
 typedef float mp3d_sample_t;
 void mp3dec_f32_to_s16(const float *in, int16_t *out, int num_samples);
 #endif /* MINIMP3_FLOAT_OUTPUT */
+#ifdef MINIMP3_EXTERNAL_SCRATCH
+size_t mp3dec_scratch_size(void);
+int mp3dec_decode_frame_scratch(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info, void *scratch_mem);
+#else
 int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info);
+#endif
 
 #ifdef __cplusplus
 }
@@ -1799,13 +1805,32 @@ void mp3dec_init(mp3dec_t *dec)
  *             number of consumed (or skippable) bytes, even when 0 is returned
  * @return number of PCM samples per channel, or 0 on error/EOF
  */
+#ifdef MINIMP3_EXTERNAL_SCRATCH
+size_t mp3dec_scratch_size(void)
+{
+    return sizeof(mp3dec_scratch_t);
+}
+int mp3dec_decode_frame_scratch(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info, void *scratch_mem)
+{
+    int i = 0, igr, frame_size = 0, success = 1;
+    const uint8_t *hdr;
+    bs_t bs_frame[1];
+    mp3dec_scratch_t *scratch_ptr = (mp3dec_scratch_t *)scratch_mem;
+    if (!scratch_ptr)
+    {
+        return 0;
+    }
+    memset(scratch_ptr->ist_pos, 0, sizeof(scratch_ptr->ist_pos)); /* avoid use-of-uninitialized-value (scfsi reuse) */
+#else
 int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info)
 {
     int i = 0, igr, frame_size = 0, success = 1;
     const uint8_t *hdr;
     bs_t bs_frame[1];
-    mp3dec_scratch_t scratch;
-    memset(scratch.ist_pos, 0, sizeof(scratch.ist_pos)); /* avoid use-of-uninitialized-value (scfsi reuse) */
+    mp3dec_scratch_t scratch_local;
+    mp3dec_scratch_t *scratch_ptr = &scratch_local;
+    memset(scratch_ptr->ist_pos, 0, sizeof(scratch_ptr->ist_pos)); /* avoid use-of-uninitialized-value (scfsi reuse) */
+#endif
 
     if (mp3_bytes > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, mp3))
     {
@@ -1848,23 +1873,23 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
 
     if (info->layer == 3)
     {
-        int main_data_begin = L3_read_side_info(bs_frame, scratch.gr_info, hdr);
+        int main_data_begin = L3_read_side_info(bs_frame, scratch_ptr->gr_info, hdr);
         if (main_data_begin < 0 || bs_frame->pos > bs_frame->limit)
         {
             mp3dec_init(dec);
             return 0;
         }
-        success = L3_restore_reservoir(dec, bs_frame, &scratch, main_data_begin);
+        success = L3_restore_reservoir(dec, bs_frame, scratch_ptr, main_data_begin);
         if (success)
         {
             for (igr = 0; igr < (HDR_TEST_MPEG1(hdr) ? 2 : 1); igr++, pcm += 576*info->channels)
             {
-                memset(scratch.grbuf, 0, sizeof(scratch.grbuf));
-                L3_decode(dec, &scratch, scratch.gr_info + igr*info->channels, info->channels);
-                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, pcm, scratch.syn[0]);
+                memset(scratch_ptr->grbuf, 0, sizeof(scratch_ptr->grbuf));
+                L3_decode(dec, scratch_ptr, scratch_ptr->gr_info + igr*info->channels, info->channels);
+                mp3d_synth_granule(dec->qmf_state, scratch_ptr->grbuf[0], 18, info->channels, pcm, scratch_ptr->syn[0]);
             }
         }
-        L3_save_reservoir(dec, &scratch);
+        L3_save_reservoir(dec, scratch_ptr);
     } else
     {
 #ifdef MINIMP3_ONLY_MP3
@@ -1873,15 +1898,15 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
         L12_scale_info sci[1];
         L12_read_scale_info(hdr, bs_frame, sci);
 
-        memset(scratch.grbuf, 0, sizeof(scratch.grbuf));
+        memset(scratch_ptr->grbuf, 0, sizeof(scratch_ptr->grbuf));
         for (i = 0, igr = 0; igr < 3; igr++)
         {
-            if (12 == (i += L12_dequantize_granule(scratch.grbuf[0] + i, bs_frame, sci, info->layer | 1)))
+            if (12 == (i += L12_dequantize_granule(scratch_ptr->grbuf[0] + i, bs_frame, sci, info->layer | 1)))
             {
                 i = 0;
-                L12_apply_scf_384(sci, sci->scf + igr, scratch.grbuf[0]);
-                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, pcm, scratch.syn[0]);
-                memset(scratch.grbuf, 0, sizeof(scratch.grbuf));
+                L12_apply_scf_384(sci, sci->scf + igr, scratch_ptr->grbuf[0]);
+                mp3d_synth_granule(dec->qmf_state, scratch_ptr->grbuf[0], 12, info->channels, pcm, scratch_ptr->syn[0]);
+                memset(scratch_ptr->grbuf, 0, sizeof(scratch_ptr->grbuf));
                 pcm += 384*info->channels;
             }
             if (bs_frame->pos > bs_frame->limit)

@@ -37,7 +37,7 @@
 #define DISPLAY_CS_PIN          GPIO_NUM_41
 #define DISPLAY_BACKLIGHT_PIN   GPIO_NUM_NC
 
-// ILI9341 240x320 Display Configuration (XiaoZhi v2.6.0 Plus Music/Radio)
+// ILI9341 240x320 Display Configuration (XiaoZhi v2.6.0 Plus Music/Radio - PSRAM MP3)
 #if defined(CONFIG_LCD_ILI9341_240X320)
 #define LCD_TYPE_ILI9341_SERIAL
 #define DISPLAY_WIDTH                   240
