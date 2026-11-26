@@ -175,11 +175,11 @@ choice BOARD_TYPE
     config BOARD_TYPE_BREAD_COMPACT_WIFI
         bool "Bread Compact Wi-Fi (面包板)"
         depends on IDF_TARGET_ESP32S3
-    config BOARD_TYPE_BREAD_COMPACT_WIFI_ILI9341
-        bool "Bread Compact Wi-Fi + ILI9341 LCD (Standard)"
-        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_BREAD_COMPACT_WIFI_ILI9341_PLUS
         bool "Bread Compact Wi-Fi + ILI9341 LCD (Plus Music/Radio)"
+        depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_BREAD_COMPACT_WIFI_ILI9341
+        bool "Bread Compact Wi-Fi + ILI9341 LCD (Standard)"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_BREAD_COMPACT_WIFI_LCD
         bool "Bread Compact Wi-Fi + LCD (面包板)"
